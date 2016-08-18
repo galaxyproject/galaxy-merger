@@ -16,7 +16,7 @@ then
     mkdir -p "$WORKING_DIR"
 fi
 
-DATABASE_DIR="${DATABASE_DIR:-${PROJECT_NAME}-processed}"
+DATABASE_DIR="${DATABASE_DIR:-${WORKING_DIR}/${PROJECT_NAME}-processed}"
 if [ ! -d "$DATABASE_DIR" ];
 then
     mkdir -p "$DATABASE_DIR"
@@ -29,22 +29,10 @@ then
 fi
 echo "Using hub executable $HUB_EXEC"
 ORIGIN_GALAXY_REPO="${ORIGIN_GALAXY_REPO:-git@github.com:${UPSTREAM_GITHUB_ACCOUNT}/${PROJECT_NAME}.git}"
-TARGET_GALAXY_REPO="${TARGET_GALAXY_REPO:-git@github.com:${TARGET_GITHUB_ACCOUNT}/${PROJECCT_NAME}.git}"
+TARGET_GALAXY_REPO="${TARGET_GALAXY_REPO:-git@github.com:${TARGET_GITHUB_ACCOUNT}/${PROJECT_NAME}.git}"
 
 VERSION="$2"
 PREVIOUS_VERSION="$1"
-
-ORIGIN_COMMIT=`git rev-parse HEAD`
-ORIGIN_RECORD="$DATABASE_DIR"/"$ORIGIN_COMMIT"
-echo $ORIGIN_RECORD
-if [ -f "$ORIGIN_RECORD" ];
-then
-    echo "Skipping, previously processed $ORIGIN_COMMIT"
-    exit 0
-else
-    touch "$ORIGIN_RECORD"
-    ls "$ORIGIN_RECORD"
-fi
 
 MESSAGE="Automated merge of '$PREVIOUS_VERSION' into '$VERSION'."
 TEMP_DIR=`mktemp -d`
@@ -69,6 +57,18 @@ done
 
 git pull --all
 
+ORIGIN_COMMIT=`git rev-parse origin/$PREVIOUS_VERSION`
+ORIGIN_RECORD="$DATABASE_DIR"/"$ORIGIN_COMMIT-into-$VERSION"
+echo $ORIGIN_RECORD
+if [ -f "$ORIGIN_RECORD" ];
+then
+    echo "Skipping, previously processed $ORIGIN_COMMIT"
+    exit 0
+else
+    touch "$ORIGIN_RECORD"
+    ls "$ORIGIN_RECORD"
+fi
+
 echo "$GALAXY_DIR"
 unset GIT_WORK_TREE
 unset GIT_DIR
@@ -81,21 +81,31 @@ git remote add target "$TARGET_GALAXY_REPO"
 git checkout "origin/$VERSION"
 git checkout -b "$MERGE_BRANCH"
 
-cd $GALAXY_DIR
+PRE_MERGE_COMMIT=`git rev-parse HEAD`
+set +e
 git merge -m "$MESSAGE" "origin/$PREVIOUS_VERSION"
 merge_command_failed=$?
-git status | grep -q ahead
-nothing_merged=$?
+set -e
+POST_MERGE_COMMIT=`git rev-parse HEAD`
 
-if [ $merge_command_failed ];
+git remote -v
+git remote remove origin
+git remote -v
+git remote add origin "$ORIGIN_GALAXY_REPO"
+git remote -v
+
+if [ "$merge_command_failed" -ne "0" ];
 then
-    echo "Merge conflict found, creating issue."
-    hub issue create -m "Failed to automatically merge '$PREVIOUS_VERSION' into '$VERSION'."
-elif [ $nothing_merged ];
+    issue_title="Failed to automatically merge '$PREVIOUS_VERSION' into '$VERSION'."
+    echo "Merge conflict found, creating issue with title [$issue_title]."
+    "$HUB_EXEC" issue create -m "$issue_title"
+elif [ "$PRE_MERGE_COMMIT" == "$POST_MERGE_COMMIT" ];
 then
-    echo "Nothing to merge, moving on."
+    echo "Nothing to merge, no action needed."
 else
     echo "Open a pull request with merge."
+    git remote -v
     git push target "$MERGE_BRANCH"
-    hub pull-request -m "$MESSAGE" -b "origin/$VERSION" -h "target/$MERGE_BRANCH"
+    echo "${UPSTREAM_GITHUB_ACCOUNT}/$VERSION" -h "${TARGET_GITHUB_ACCOUNT}/$MERGE_BRANCH"
+    "$HUB_EXEC" pull-request -m "$MESSAGE" -b "${UPSTREAM_GITHUB_ACCOUNT}:$VERSION" -h "${TARGET_GITHUB_ACCOUNT}:$MERGE_BRANCH"
 fi
