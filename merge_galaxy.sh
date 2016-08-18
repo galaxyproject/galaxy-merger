@@ -5,7 +5,6 @@ set -e
 
 #TODO: galaxyproject
 UPSTREAM_GITHUB_ACCOUNT="${UPSTREAM_GITHUB_ACCOUNT:-galaxybot}"
-#TODO: galaxybot
 TARGET_GITHUB_ACCOUNT="${TARGET_GITHUB_ACCOUNT:-galaxybot}"
 
 PROJECT_NAME="${PROJECT_NAME:-galaxy}"
